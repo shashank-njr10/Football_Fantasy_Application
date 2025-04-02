@@ -1,0 +1,103 @@
+package com.example.fantasy_football_backend.configs;
+
+import com.example.fantasy_football_backend.models.Match;
+import com.example.fantasy_football_backend.repositories.MatchRepository;
+import com.example.fantasy_football_backend.services.FantasyTeamService;
+import com.example.fantasy_football_backend.services.FootballApiService;
+import com.example.fantasy_football_backend.services.PlayerService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+import java.util.Arrays;
+import java.util.List;
+
+@Component
+@EnableScheduling
+@RequiredArgsConstructor
+@Slf4j
+public class ScheduledTasks {
+
+    private final FootballApiService footballApiService;
+    private final MatchRepository matchRepository;
+    private final PlayerService playerService;
+    private final FantasyTeamService fantasyTeamService;
+
+    // List of competition codes to track (Champions League, Premier League, etc.)
+    private static final List<String> COMPETITION_CODES = Arrays.asList("CL", "PL", "PD", "BL1", "SA", "FL1");
+
+    // List of top team codes to track for player data
+    private static final List<String> TEAM_CODES = Arrays.asList(
+            "65", "66", "73", "78", // Premier League top teams
+            "86", "81", "529", "83", // La Liga top teams
+            "5", "157", "4", "518", // Bundesliga top teams
+            "505", "506", "489", "6195", // Serie A top teams
+            "524", "525", "559", // Ligue 1 top teams
+            "503", "500", "5", "698" // Champions League top teams
+    );
+
+    /**
+     * Update matches data every 5 minutes
+     */
+    @Scheduled(cron = "${app.tasks.update-matches-cron}")
+    public void updateMatches() {
+        log.info("Starting scheduled match update task");
+
+        for (String competitionCode : COMPETITION_CODES) {
+            footballApiService.updateMatches(competitionCode);
+        }
+
+        // Also update live matches
+        List<Match> liveMatches = matchRepository.findByStatus("LIVE");
+        for (Match match : liveMatches) {
+            footballApiService.updateMatchDetails(match.getId());
+        }
+
+        // Update scheduled matches to live if needed
+        updateScheduledMatchesToLive();
+
+        log.info("Completed scheduled match update task");
+    }
+
+    /**
+     * Update team players data once a day (midnight)
+     */
+    @Scheduled(cron = "0 0 0 * * ?")
+    public void updatePlayers() {
+        log.info("Starting scheduled player update task");
+
+        for (String teamCode : TEAM_CODES) {
+            footballApiService.updateTeamPlayers(teamCode);
+        }
+
+        log.info("Completed scheduled player update task");
+    }
+
+    /**
+     * Update all player points and team scores every 15 minutes
+     */
+    @Scheduled(cron = "${app.tasks.update-scores-cron}")
+    public void updateScores() {
+        log.info("Starting scheduled score update task");
+
+        playerService.updateAllPlayerPoints();
+        fantasyTeamService.updateAllTeamScores();
+
+        log.info("Completed scheduled score update task");
+    }
+
+    /**
+     * Update scheduled matches to live if kickoff time has passed
+     */
+    private void updateScheduledMatchesToLive() {
+        log.info("Checking for matches that should be updated to LIVE status");
+        matchRepository.findByStatusAndKickoffTimeBefore("SCHEDULED", java.time.LocalDateTime.now())
+                .forEach(match -> {
+                    match.setStatus("LIVE");
+                    matchRepository.save(match);
+                    log.info("Updated match {} to LIVE status", match.getId());
+                });
+    }
+}
