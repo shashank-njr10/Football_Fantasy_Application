@@ -17,4 +17,7 @@ public class ContestEntryDTO {
     private int rank;
     private int score;
     private LocalDateTime joinedAt;
+
+    // Fields for nested objects in case needed
+    private ContestDTO contest;
 }

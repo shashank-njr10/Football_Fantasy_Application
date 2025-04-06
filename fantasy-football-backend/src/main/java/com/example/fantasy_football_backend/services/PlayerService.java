@@ -134,6 +134,10 @@ public class PlayerService {
             updatePlayerTotalPoints(player);
         }
     }
+    @Transactional
+    public Match createMatch(Match match) {
+        return matchRepository.save(match);
+    }
 
     private int calculatePoints(PlayerPerformance performance) {
         int points = 0;

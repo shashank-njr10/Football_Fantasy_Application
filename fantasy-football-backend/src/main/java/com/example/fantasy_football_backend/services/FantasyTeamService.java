@@ -163,6 +163,13 @@ public class FantasyTeamService {
             }
         }
     }
+    /**
+     * Check if a team is entered in a specific contest
+     */
+    public boolean isTeamInContest(Long teamId, Long contestId) {
+        Optional<ContestEntry> entry = contestEntryRepository.findByContestIdAndTeamId(contestId, teamId);
+        return entry.isPresent();
+    }
 
     private int calculateTeamScore(FantasyTeam team) {
         return team.getPlayers().stream()

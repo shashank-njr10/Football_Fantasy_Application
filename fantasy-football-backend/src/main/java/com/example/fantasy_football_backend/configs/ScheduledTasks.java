@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 @Component
 @EnableScheduling
@@ -41,24 +42,47 @@ public class ScheduledTasks {
     /**
      * Update matches data every 5 minutes
      */
-    @Scheduled(cron = "${app.tasks.update-matches-cron}")
+    @Scheduled(cron = "0 */5 * * * *")
     public void updateMatches() {
         log.info("Starting scheduled match update task");
 
+        // Run each competition update in a separate thread with delays
         for (String competitionCode : COMPETITION_CODES) {
-            footballApiService.updateMatches(competitionCode);
+            // Use a new thread for each API call to avoid blocking
+            CompletableFuture.runAsync(() -> {
+                footballApiService.updateMatches(competitionCode);
+            });
         }
 
-        // Also update live matches
-        List<Match> liveMatches = matchRepository.findByStatus("LIVE");
-        for (Match match : liveMatches) {
-            footballApiService.updateMatchDetails(match.getId());
-        }
+        // Also update live matches (with delay)
+        CompletableFuture.runAsync(() -> {
+            try {
+                Thread.sleep(30000); // Wait 30 seconds before updating live matches
+                List<Match> liveMatches = matchRepository.findByStatus("LIVE");
+                for (Match match : liveMatches) {
+                    try {
+                        Thread.sleep(6000); // Rate limit
+                        footballApiService.updateMatchDetails(match.getId());
+                    } catch (Exception e) {
+                        log.error("Error updating live match {}", match.getId());
+                    }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
 
-        // Update scheduled matches to live if needed
-        updateScheduledMatchesToLive();
+        // Update scheduled matches to live if needed (with delay)
+        CompletableFuture.runAsync(() -> {
+            try {
+                Thread.sleep(60000); // Wait 1 minute before checking for matches to make live
+                updateScheduledMatchesToLive();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
 
-        log.info("Completed scheduled match update task");
+        log.info("Scheduled match update tasks initiated");
     }
 
     /**
@@ -68,20 +92,27 @@ public class ScheduledTasks {
     public void updatePlayers() {
         log.info("Starting scheduled player update task");
 
-        for (String teamCode : TEAM_CODES) {
-            footballApiService.updateTeamPlayers(teamCode);
-        }
-
-        log.info("Completed scheduled player update task");
+        // Process teams one by one with a delay to respect API rate limits
+        CompletableFuture.runAsync(() -> {
+            for (String teamCode : TEAM_CODES) {
+                try {
+                    footballApiService.updateTeamPlayers(teamCode);
+                } catch (Exception e) {
+                    log.error("Error updating team {}: {}", teamCode, e.getMessage());
+                }
+            }
+            log.info("Completed scheduled player update task");
+        });
     }
 
     /**
      * Update all player points and team scores every 15 minutes
      */
-    @Scheduled(cron = "${app.tasks.update-scores-cron}")
+    @Scheduled(cron = "0 */15 * * * *")
     public void updateScores() {
         log.info("Starting scheduled score update task");
 
+        // This doesn't involve API calls, so we can run it directly
         playerService.updateAllPlayerPoints();
         fantasyTeamService.updateAllTeamScores();
 
